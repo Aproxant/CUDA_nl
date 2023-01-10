@@ -20,7 +20,10 @@
 #pragma once
 #include "HammingVectors.h"
 #include "scans.cuh"
+#include "HammingCPUVec.h"
+
 #define ThreadNr 1024
+
 
 using namespace std;
 using namespace std::chrono;
@@ -83,8 +86,32 @@ bool LoadSequences(string path, HammingVectors*& vec)
     return true;
 }
 
-int main()
+
+
+
+int main(int argc, char** argv)
 {
+    int verbose = 0;
+    int cpu = 0;
+    /*
+    if (argc < 2)
+    {
+        printf("Provide file with data\n");
+        return 1;
+    }
+
+    if (argc == 4)
+    {
+        cpu = 1;
+        verbose = 1;
+    }
+    if (argc == 3)
+    {
+        cpu = 1;
+    }
+    */
+
+
     //Fast IO initialization
     ios_base::sync_with_stdio(false);
     cin.tie(NULL);
@@ -97,7 +124,7 @@ int main()
     auto start = high_resolution_clock::now();
 
     
-    if (!LoadSequences("input2.txt", hamSet))
+    if (!LoadSequences("test1.dat", hamSet))
         return;
 
     auto stop = high_resolution_clock::now();
@@ -106,6 +133,19 @@ int main()
 
     findPairs(hamSet);
     cout << endl;
+
+    if (cpu)
+    {
+        HammingCPUVec cpuHam=HammingCPUVec("test1.dat");
+        cout << "CPU Hamming" << endl;
+        auto start = high_resolution_clock::now();
+        cout << "Pairs found: " << cpuHam.hammingWithCPU(verbose) << endl;
+        auto stop = high_resolution_clock::now();
+        std::chrono::duration<double> elapsed_seconds = stop - start;
+
+        cout << "Time: " << elapsed_seconds.count() << "[s]" << endl;
+    }
+
 
     return 0;
 }
@@ -129,6 +169,9 @@ void raddixSort(uint32_t *data,uint32_t* perm,uint32_t* dev_row,int n,int l)
     }
 }
 
+
+
+
 __global__ void xorKenrel(uint32_t* data, uint32_t* invdata, int n, int l)
 {
     int idX = threadIdx.x + blockIdx.x * blockDim.x;
@@ -136,7 +179,8 @@ __global__ void xorKenrel(uint32_t* data, uint32_t* invdata, int n, int l)
     {
         for (int i = 0; i < l; i++)
         {
-            if (idX == l - 1)
+            
+            if (idX == n - 1)
             {
                 data[idX + n * i] = 0;
 
@@ -154,8 +198,42 @@ __global__ void xorKenrel(uint32_t* data, uint32_t* invdata, int n, int l)
             }
             __syncthreads();
         }
-
     }
+}
+
+__global__ void xor2Kenrel(uint32_t* data, uint32_t* tmp, int n, int l)
+{
+    int idX = threadIdx.x + blockIdx.x * blockDim.x;
+    if (idX < n-1)
+    {
+        for (int i = 0; i < l; i++)
+        {
+                tmp[idX + n * i] = data[idX + n * i] ^ data[idX + 1 + n * i];
+        }
+    }
+}
+
+void xorVectors(uint32_t* data, uint32_t* dataInv, int n, int l)
+{
+    uint32_t* tmp = nullptr;
+    cudaMalloc((void**)&tmp, n * l * sizeof(uint32_t));
+
+    
+    int blockNr = n / ThreadNr;
+    if (n % ThreadNr != 0)
+        blockNr++;
+
+    thrust::fill(thrust::device, tmp, tmp + n * l, 0u);
+    xor2Kenrel << <blockNr, ThreadNr >> > (data, tmp, n, l);
+    thrust::copy(thrust::device, tmp, tmp + n*l, data);
+
+    thrust::fill(thrust::device, tmp, tmp + n * l, 0u);
+    xor2Kenrel << <blockNr, ThreadNr >> > (dataInv, tmp, n, l);
+    thrust::copy(thrust::device, tmp, tmp + n * l, dataInv);
+
+    cudaFree(tmp);
+
+
 }
 
 __global__ void  exclusiveOrKernel(uint32_t* data, int n, int l)
@@ -347,7 +425,8 @@ cudaError_t findPairs(HammingVectors* vec)
 
     cudaEventRecord(start, 0);
 
-    xorKenrel<<<blockNr,ThreadNr>>>(dev_vec,dev_invVec, vec->vector_count, vec->vector_len);
+    xorVectors(dev_vec, dev_invVec, vec->vector_count, vec->vector_len);
+    //xorKenrel<<<blockNr,ThreadNr>>>(dev_vec,dev_invVec, vec->vector_count, vec->vector_len);
 
     cudaEventRecord(stop, 0);
     cudaEventSynchronize(stop);
@@ -374,9 +453,11 @@ cudaError_t findPairs(HammingVectors* vec)
     {
         for (int i = 0; i < vec->vector_len; i++)
         {
+            thrust::fill(thrust::device, dev_row, dev_row + vec->vector_count,0u);
             scanLargeDeviceArray(dev_row, dev_vec, vec->vector_count, i);
             thrust::copy(thrust::device, dev_row, dev_row + vec->vector_count, dev_vec + i * vec->vector_count);
 
+            thrust::fill(thrust::device, dev_row, dev_row + vec->vector_count , 0u);
             scanLargeDeviceArray(dev_row, dev_invVec, vec->vector_count, i);
             thrust::copy(thrust::device, dev_row, dev_row + vec->vector_count, dev_invVec + i * vec->vector_count);
         }
@@ -441,6 +522,7 @@ cudaError_t findPairs(HammingVectors* vec)
     blockNr = vec->vector_count * vec->vector_len / ThreadNr;
     if (vec->vector_count * vec->vector_len % ThreadNr != 0)
         blockNr++;
+
 
     cudaEventRecord(start, 0);
 

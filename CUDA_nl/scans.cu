@@ -8,7 +8,7 @@
 
 #define checkCudaError(o, l) _checkCudaError(o, l, __func__)
 
-int THREADS_PER_BLOCK = 512;
+int THREADS_PER_BLOCK = 1024;
 int ELEMENTS_PER_BLOCK = THREADS_PER_BLOCK * 2;
 
 

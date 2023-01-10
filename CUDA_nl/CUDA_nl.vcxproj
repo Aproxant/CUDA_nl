@@ -82,9 +82,11 @@
     <CudaCompile Include="scans.cu" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="HammingCPUVec.cpp" />
     <ClCompile Include="HammingVectors.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="HammingCPUVec.h" />
     <ClInclude Include="HammingVectors.h" />
     <ClInclude Include="fastSum.cuh" />
     <ClInclude Include="scans.cuh" />
@@ -92,6 +94,9 @@
   <ItemGroup>
     <Text Include="input.txt" />
     <Text Include="input2.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="test1.dat" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
