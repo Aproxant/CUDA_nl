@@ -361,3 +361,9 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+/Cuda_FInal/test1.dat
+/Cuda_FInal/test2.dat
+/Cuda_FInal/test3.dat
+/CUDA_nl/test3.dat
+/CUDA_nl/test2.dat
+/CUDA_nl/test1.dat
