@@ -29,7 +29,7 @@ using namespace std;
 using namespace std::chrono;
 
 
-cudaError_t findPairs(HammingVectors* vec);
+cudaError_t findPairs(HammingVectors* vec,int verbose);
 
 void PrintVector(uint32_t* vec, int n, int l) {
     for (int i = 0; i < n; i++) {
@@ -86,7 +86,8 @@ int main(int argc, char** argv)
 {
 
     int cpu = 0;
-    
+    int ver = 1;
+    /*
     if (argc < 2)
     {
         printf("Provide file with data\n");
@@ -97,7 +98,7 @@ int main(int argc, char** argv)
     {
         cpu = 1;
     }
-    
+    */
     
 
     //Fast IO initialization
@@ -112,14 +113,14 @@ int main(int argc, char** argv)
     auto start = high_resolution_clock::now();
 
 
-    if (!LoadSequences(argv[1], hamSet))
+    if (!LoadSequences("input.txt", hamSet))
         return;
 
     auto stop = high_resolution_clock::now();
     std::chrono::duration<double> elapsed_seconds = stop - start;
     cout << "Wczytywanie ukonczone. Time: " << elapsed_seconds.count() << " [s]" << endl;
 
-    findPairs(hamSet);
+    findPairs(hamSet,ver);
     cout << endl;
 
     if (cpu)
@@ -187,11 +188,11 @@ cudaError_t xorVectors(uint32_t* data, uint32_t* dataInv, int n, int l)
         blockNr++;
 
     thrust::fill(thrust::device, tmp, tmp + n * l, 0u);
-    xorKenrel << <blockNr, ThreadNr >> > (data, tmp, n, l);
+    xorKenrel <<<blockNr, ThreadNr >> > (data, tmp, n, l);
     thrust::copy(thrust::device, tmp, tmp + n * l, data);
 
     thrust::fill(thrust::device, tmp, tmp + n * l, 0u);
-    xorKenrel << <blockNr, ThreadNr >> > (dataInv, tmp, n, l);
+    xorKenrel <<<blockNr, ThreadNr >> > (dataInv, tmp, n, l);
     thrust::copy(thrust::device, tmp, tmp + n * l, dataInv);
 
     
@@ -281,8 +282,27 @@ __global__ void countPairsKernel(uint32_t* data, uint64_t* pairs_count, int n, i
             atomicAdd(pairs_count, 1);
 }
 
+__global__ void countPairsKernelVerbose(uint32_t* data, uint64_t* pairs_count, uint32_t* dev_perm, uint32_t* pairsOne, uint32_t* pairsTwo, int n, int l)
+{
+    int idX = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idX < (n * l) - 1)
+        if (data[idX] == data[idX + 1] && data[idX + n * l] == data[idX + 1 + n * l] && data[idX + n * l * 2] == data[idX + 1 + n * l * 2])
+        {
+            
+            if (idX< 1000 && idX<n*l-1)
+            {
+                int k = idX / n;
+                pairsOne[idX] = (dev_perm[idX]-n*k);
+                pairsTwo[idX] = (dev_perm[idX  + 1] - n*k);
+                printf("Pairs %d\n", idX);
+                
+            }
+            atomicAdd(pairs_count, 1);
+        }
+            
+}
 
-cudaError_t findPairs(HammingVectors* vec)
+cudaError_t findPairs(HammingVectors* vec,int verbose)
 {
     uint32_t* dev_vec = nullptr;
     uint32_t* dev_invVec = nullptr;
@@ -414,11 +434,12 @@ cudaError_t findPairs(HammingVectors* vec)
             else
             {
                 equal = false;
+                break;
             }
         }
         if (equal)
         {
-            printf("Wektory powtarzalne wynik nieprawdziwy!");
+            printf("Wektory powtarzalne wynik nieprawdziwy!\n");
             break;
         }
             
@@ -545,41 +566,158 @@ cudaError_t findPairs(HammingVectors* vec)
     time += time_temp;
     printf("Sorting final table %f [s]\n", time_temp / 1000);
 
+    uint32_t* dupa = new uint32_t[vec->vector_count * vec->vector_len *3];
 
+    uint32_t* dupa2 = new uint32_t[vec->vector_count*vec->vector_len];
 
+    cudaStatus = cudaMemcpy(dupa,dev_finalTable, vec->vector_count * vec->vector_len*3 * sizeof(uint32_t), cudaMemcpyDeviceToHost);
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMemcpy dupa failed!");
+        goto Error;
+    }
+
+    cudaStatus = cudaMemcpy(dupa2, dev_perm, vec->vector_count * vec->vector_len * sizeof(uint32_t), cudaMemcpyDeviceToHost);
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMemcpy dupa failed!");
+        goto Error;
+    }
+
+    for (int i = 0; i < vec->vector_count * vec->vector_len; i++)
+    {
+        printf("%d, ", dupa2[i]);
+    }
+    printf("\n");
+
+    for (int i = 0; i < vec->vector_count * vec->vector_len; i++)
+    {
+        printf("%d , %d , %d\n", dupa[i], dupa[i + vec->vector_count * vec->vector_len], dupa[i + 2 * vec->vector_count * vec->vector_len]);
+    }
+    delete[] dupa;
+    delete[] dupa2;
     cudaEventRecord(start, 0);
     //Zliczanie Par
-    countPairsKernel << <blockNr, ThreadNr >> > (dev_finalTable, dev_pair_count, vec->vector_count, vec->vector_len);
+    
+    if (verbose)
+    {
+        uint32_t* pairsOne;
+        uint32_t* pairsTwo;
+        cudaStatus = cudaMalloc((void**)&pairsOne, 1000*sizeof(uint32_t));
+        if (cudaStatus != cudaSuccess) {
+            fprintf(stderr, "cudaMalloc pairsOne failed!");
+            goto Error;
+        }
 
-    cudaEventRecord(stop, 0);
-    cudaEventSynchronize(stop);
-    cudaEventElapsedTime(&time_temp, start, stop);
-    time += time_temp;
-    printf("Finding pairs %f [s]\n", time_temp / 1000);
+        cudaStatus = cudaMemset(pairsOne, 0, 1000*sizeof(uint32_t));
+        if (cudaStatus != cudaSuccess) {
+            fprintf(stderr, "cudaMamset pairOne failed!");
+            goto Error;
+        }
+        cudaStatus = cudaMalloc((void**)&pairsTwo, 1000*sizeof(uint32_t));
+        if (cudaStatus != cudaSuccess) {
+            fprintf(stderr, "cudaMalloc pairTwo failed!");
+            goto Error;
+        }
 
-    cudaStatus = cudaGetLastError();
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "findPairsKernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
-        goto Error;
+        cudaStatus = cudaMemset(pairsTwo, 0, 1000*sizeof(uint32_t));
+        if (cudaStatus != cudaSuccess) {
+            fprintf(stderr, "cudaMamset pairsTwo failed!");
+            goto Error;
+        }
+
+        countPairsKernelVerbose << <blockNr, ThreadNr >> > (dev_finalTable, dev_pair_count,dev_perm,pairsOne,pairsTwo, vec->vector_count, vec->vector_len);
+
+        cudaEventRecord(stop, 0);
+        cudaEventSynchronize(stop);
+        cudaEventElapsedTime(&time_temp, start, stop);
+        time += time_temp;
+        printf("Finding pairs %f [s]\n", time_temp / 1000);
+
+        cudaStatus = cudaGetLastError();
+        if (cudaStatus != cudaSuccess) {
+            fprintf(stderr, "findPairsKernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
+            goto Error;
+        }
+        cudaStatus = cudaDeviceSynchronize();
+        if (cudaStatus != cudaSuccess) {
+            fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching findPairsKernel!\n", cudaStatus);
+            goto Error;
+        }
+        uint32_t* vecOne = new uint32_t[1000];
+        uint32_t* vecTwo = new uint32_t[1000];
+
+        cudaStatus = cudaMemcpy(vecOne, pairsOne, 1000*sizeof(uint32_t), cudaMemcpyDeviceToHost);
+        if (cudaStatus != cudaSuccess) {
+            fprintf(stderr, "cudaMemcpy vecOne failed!");
+            goto Error;
+        }
+        cudaStatus = cudaMemcpy(vecTwo, pairsTwo, 1000*sizeof(uint32_t), cudaMemcpyDeviceToHost);
+        if (cudaStatus != cudaSuccess) {
+            fprintf(stderr, "cudaMemcpy vecTwo failed!");
+            goto Error;
+        }
+
+        cudaStatus = cudaMemcpy(&pairs, dev_pair_count, sizeof(uint64_t), cudaMemcpyDeviceToHost);
+        if (cudaStatus != cudaSuccess) {
+            fprintf(stderr, "cudaMemcpy failed!");
+            goto Error;
+        }
+
+
+        printf("Cuda done. Time %f [s]\n", time / 1000);
+
+        cout << "Result. Pairs found: " << pairs << endl;
+
+        int j = 0;
+        for (int i = 0; i < 1000; i++)
+        {
+            if(vecOne[i]!= vecTwo[i])
+            {
+                printf("%d , %d\n", vecOne[i], vecTwo[i]);
+                j++;
+            }
+            if (j >= 50)
+                break;
+            
+        }
+        delete[] vecOne;
+        delete[] vecTwo;
+
+        cudaFree(pairsOne);
+        cudaFree(pairsOne);
     }
-    cudaStatus = cudaDeviceSynchronize();
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching findPairsKernel!\n", cudaStatus);
-        goto Error;
+    else
+    {
+        countPairsKernel <<<blockNr, ThreadNr >> > (dev_finalTable, dev_pair_count, vec->vector_count, vec->vector_len);
+
+        cudaEventRecord(stop, 0);
+        cudaEventSynchronize(stop);
+        cudaEventElapsedTime(&time_temp, start, stop);
+        time += time_temp;
+        printf("Finding pairs %f [s]\n", time_temp / 1000);
+
+        cudaStatus = cudaGetLastError();
+        if (cudaStatus != cudaSuccess) {
+            fprintf(stderr, "findPairsKernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
+            goto Error;
+        }
+        cudaStatus = cudaDeviceSynchronize();
+        if (cudaStatus != cudaSuccess) {
+            fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching findPairsKernel!\n", cudaStatus);
+            goto Error;
+        }
+
+
+        cudaStatus = cudaMemcpy(&pairs, dev_pair_count, sizeof(uint64_t), cudaMemcpyDeviceToHost);
+        if (cudaStatus != cudaSuccess) {
+            fprintf(stderr, "cudaMemcpy failed!");
+            goto Error;
+        }
+
+
+        printf("Cuda done. Time %f [s]\n", time / 1000);
+
+        cout << "Result. Pairs found: " << pairs / 2 << endl;
     }
-
-
-    cudaStatus = cudaMemcpy(&pairs, dev_pair_count, sizeof(uint64_t), cudaMemcpyDeviceToHost);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMemcpy failed!");
-        goto Error;
-    }
-
-
-    printf("Cuda done. Time %f [s]\n", time / 1000);
-
-    cout << "Result. Pairs found: " << pairs/2 << endl;
-
 
 
 Error:

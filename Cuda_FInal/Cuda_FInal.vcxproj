@@ -11,8 +11,8 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectGuid>{3E0BAD26-BBA2-444E-AE10-0187FFF142DC}</ProjectGuid>
-    <RootNamespace>CUDA_nl</RootNamespace>
+    <ProjectGuid>{396E38A9-8822-46B2-B4E8-E536871738E4}</ProjectGuid>
+    <RootNamespace>Cuda_FInal</RootNamespace>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
@@ -77,26 +77,28 @@
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <CudaCompile Include="fastSum.cu" />
+    <CudaCompile Include="..\CUDA_nl\fastSum.cu" />
+    <CudaCompile Include="..\CUDA_nl\scans.cu" />
     <CudaCompile Include="kernel.cu" />
-    <CudaCompile Include="scans.cu" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="HammingCPUVec.cpp" />
-    <ClCompile Include="HammingVectors.cpp" />
+    <ClInclude Include="..\CUDA_nl\fastSum.cuh" />
+    <ClInclude Include="..\CUDA_nl\HammingCPUVec.h" />
+    <ClInclude Include="..\CUDA_nl\HammingVectors.h" />
+    <ClInclude Include="..\CUDA_nl\scans.cuh" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="HammingCPUVec.h" />
-    <ClInclude Include="HammingVectors.h" />
-    <ClInclude Include="fastSum.cuh" />
-    <ClInclude Include="scans.cuh" />
+    <ClCompile Include="..\CUDA_nl\HammingCPUVec.cpp" />
+    <ClCompile Include="..\CUDA_nl\HammingVectors.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <Text Include="input.txt" />
-    <Text Include="input2.txt" />
+    <Text Include="..\CUDA_nl\input.txt" />
+    <Text Include="..\CUDA_nl\input2.txt" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="test1.dat" />
+    <None Include="..\CUDA_nl\test1.dat" />
+    <None Include="..\CUDA_nl\test2.dat" />
+    <None Include="..\CUDA_nl\test3.dat" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
